@@ -1,0 +1,40 @@
+name: SAST Check
+on:
+  push:
+    branches: [ main ]  # Adjust this to your main branch name
+  pull_request:
+    branches: [ main ]  # Optionally run on PRs
+jobs:
+  sast-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Create project zip
+        run: |
+          zip -r project.zip . -x "*.git*" "*/node_modules/*" "*/vendor/*" "*.zip"
+      
+      - name: Perform SAST Scan
+        id: sast
+        run: |
+          RESPONSE=$(curl -X POST \
+            -H "Client-ID: ${{ secrets.INTRUCEPT_CLIENT_ID }}" \
+            -H "Client-Secret: ${{ secrets.INTRUCEPT_CLIENT_SECRET }}" \
+            -F "projectZipFile=@project.zip" \
+            -F "applicationId=${{ secrets.INTRUCEPT_APPLICATION_ID }}" \
+            -F "scanName=firefox-ios-swift SAST Scan - ${{ github.sha }}" \
+            -F "language=swift" \
+            https://appsecops-api.intruceptlabs.com/api/v1/integrations/sast-scans)
+          
+          CAN_PROCEED=$(echo $RESPONSE | jq -r '.canProceed')
+          echo "canProceed=$CAN_PROCEED" >> $GITHUB_OUTPUT
+          
+          VULNS_TABLE=$(echo $RESPONSE | jq -r '.vulnsTable')
+          echo "Vulnerabilities Table:"
+          echo "$VULNS_TABLE"
+      
+      - name: Check SAST result
+        if: steps.sast.outputs.canProceed != 'true'
+        run: |
+          echo "SAST scan failed. Please review the security issues."
+          exit 1
